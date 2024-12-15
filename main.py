@@ -85,7 +85,7 @@ async def main(client):
 
     # Watchdog timer
     global wdt
-    wdt = WDT(timeout=10000)
+    wdt = WDT(timeout=8388)
 
     while True:
         result_frame = await get_ble_adv()
