@@ -60,9 +60,9 @@ async def get_ble_adv():
                 dict_result['rssi'] = result.rssi
                 if result.name():
                     dict_result['name'] = result.name()
-                dict_result['raw_adv'] = raw_adv
+                dict_result['raw_data'] = raw_adv
                 if dec_adv:
-                    dict_result['dec_adv'] = dec_adv
+                    dict_result['data'] = dec_adv
                 
                 ble_frame.append(dict_result)
 
