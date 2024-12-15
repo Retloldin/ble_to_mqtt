@@ -1,0 +1,11 @@
+{
+    "ssid":"",
+    "wifi_pw":"",
+    "server":"",
+    "port":1883,
+    "user":"",
+    "password":"",
+    "GitHub_username":"Retloldin",
+    "repo_name":"ble_to_mqtt",
+    "branch":"main"
+}
