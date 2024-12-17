@@ -8,6 +8,8 @@ from machine import WDT, soft_reset
 from ble_decoder import decode_ble
 from ota import OTAUpdater
 from sys import exit
+import socket
+import time
 
 # Config file
 try:
@@ -39,12 +41,95 @@ config["queue_len"] = 1
 
 client = MQTTClient(config)
 wdt = None
+frame_log = []
 
-async def up(client):  # Respond to connectivity being (re)established
+# HTML template for the webpage
+def webpage(request, *values):
+    global frame_log
+    html = f"""<!DOCTYPE html>
+            <html>
+                <head>
+                    <title>PicoW BLE -> MQTT</title>
+                    <meta charset="UTF-8">
+                </head>
+                <body>
+                    <div>
+                        <p><a href="/reset">Click to reset the PicoW</a></p>
+                    </div>
+                    <div>
+                        <h1>Frame log (last 25)</h1>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>timestamp</th>
+                                    <th>addr</th>
+                                    <th>rssi</th>
+                                    <th>raw_data</th>
+                                    <th>data</th>
+                                </tr>
+                            </thead>
+                            <tbody>"""
+    
+    frame_log_rev = frame_log.copy()
+    frame_log_rev.reverse()
+
+    for curr_frame in frame_log_rev:
+        curr_frame_data = curr_frame.copy()
+        curr_frame_data.pop('timestamp')
+        curr_frame_data.pop('addr')
+        curr_frame_data.pop('rssi')
+        curr_frame_data.pop('raw_data')
+
+        html +=f"""             <tr>
+                                    <td>{curr_frame['timestamp']}</td>
+                                    <td>{curr_frame['addr']}</td>
+                                    <td>{curr_frame['rssi']}</td>
+                                    <td>{curr_frame['raw_data']}</td>
+                                    <td>{json.dumps(curr_frame_data)}</td>
+                                <tr>"""
+
+    html +=f"""             </tbody>
+                        </table>
+                    </div>
+                </body>
+            </html>"""
+    
+    return str(html)
+
+# Asynchronous function to handle client's requests
+async def handle_client(reader, writer):
+    print("Client connected")
+    request_line = await reader.readline()
+    print('Request:', request_line)
+    
+    # Skip HTTP request headers
+    while await reader.readline() != b"\r\n":
+        pass
+    
+    request = str(request_line, 'utf-8').split()[1]
+    print('Request:', request)
+    
+    # Process the requests
+    if request == '/reset':
+        soft_reset()
+
+    # Generate HTML response
+    response = webpage(request)  
+
+    # Send the HTTP response and close the connection
+    writer.write('HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n')
+    writer.write(response)
+    await writer.drain()
+    await writer.wait_closed()
+    print('Client Disconnected')
+
+# Respond to connectivity being (re)established
+async def up(client):
     while True:
         await client.up.wait()  # Wait on an Event
         client.up.clear()
 
+# Get BLE frames from scanner
 async def get_ble_adv():
     ble_frame = []
     async with aioble.scan(1000) as scanner:
@@ -58,17 +143,21 @@ async def get_ble_adv():
                 dict_result = {}
                 dict_result['addr'] = result.device.addr_hex()
                 dict_result['rssi'] = result.rssi
+                dict_result['timestamp'] = time.time()
+                
                 if result.name():
                     dict_result['name'] = result.name()
                 dict_result['raw_data'] = raw_adv
                 if dec_adv:
-                    dict_result['data'] = dec_adv
-                
+                    for data_key, data_value in dec_adv.items():
+                        dict_result[data_key] = data_value
+
                 ble_frame.append(dict_result)
 
     return ble_frame
 
-async def main(client):
+# Network starting and OTA update
+async def init(client):
     global params
     print ("Connecting to WiFi")
     await client.wifi_connect()
@@ -80,6 +169,10 @@ async def main(client):
     firmware_url = f"https://github.com/{params['GitHub_username']}/{params['repo_name']}/{params['branch']}/"
     ota_updater = OTAUpdater(firmware_url, 'main.py', 'ble_decoder.py')
     ota_updater.download_and_install_update_if_available()
+
+# MQTT client and local Webserver
+async def main(client):
+    global frame_log
     print ("Connecting to MQTT")
     await client.connect()
     print ("Connected")
@@ -88,19 +181,44 @@ async def main(client):
     # Watchdog timer
     global wdt
     wdt = WDT(timeout=8388)
+    
+    # Start the server and run the event loop
+    print('Setting up server')
+    server = asyncio.start_server(handle_client, "0.0.0.0", 80)
+    asyncio.create_task(server)
 
     while True:
         result_frame = await get_ble_adv()
         if result_frame:
             for result in result_frame:
-                await client.publish(f'ble/{result["addr"]}', json.dumps(result), qos = 1)
-                #print(json.dumps(result))
+                
+                # Send to MQTT Broker                
+                curr_addr = result["addr"]
+                for data_key, data_value in result.items():
+                    if data_key != 'timestamp':
+                        if not isinstance(data_value, bytes):
+                            data_value = str(data_value).encode()
+                        await client.publish(f'ble_{curr_addr}/{data_key}', data_value, qos = 1)
+                
+                # Save to local history (25 last)
+                if len(frame_log) == 25:
+                    frame_log.pop(0)
+                frame_log.append(result)
+                
+                # Print to console
+                print(json.dumps(result))
         wdt.feed()
 
-try:
-    asyncio.run(main(client))
-except Exception as e:
-    soft_reset() 
-finally:
-    client.close()
-    exit(0)
+# MAIN #
+if __name__ == "__main__":
+    try:
+        asyncio.run(init(client))
+        loop = asyncio.get_event_loop()
+        loop.create_task(main(client))
+        loop.run_forever()
+    except Exception as e:
+        print(e)
+        soft_reset() 
+    finally:
+        client.close()
+        exit(0)
