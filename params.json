@@ -1,6 +1,7 @@
 {
     "ssid":"",
     "wifi_pw":"",
+    "ntp_host":"pool.ntp.org",
     "server":"",
     "port":1883,
     "user":"",
