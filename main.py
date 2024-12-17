@@ -69,9 +69,11 @@ async def get_ble_adv():
     return ble_frame
 
 async def main(client):
+    global params
     print ("Connecting to WiFi")
     await client.wifi_connect()
     print ("Updating system time")
+    ntptime.host = params['ntp_host']
     ntptime.timeout = 10
     ntptime.settime()
     print ("Checking for OTA Update")
