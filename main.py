@@ -129,7 +129,7 @@ async def up(client):
 # Get BLE frames from scanner
 async def get_ble_adv():
     ble_frame = []
-    async with aioble.scan(1000) as scanner:
+    async with aioble.scan(1000, interval_us=30000, window_us=30000) as scanner:
         async for result in scanner:
             # ['__class__', '__init__', '__module__', '__qualname__', '__str__', '__dict__', 'adv_data', 'connectable', 'name',
             #  'resp_data', 'rssi', '_decode_field', '_update', 'device', 'manufacturer', 'services']
