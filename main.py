@@ -41,12 +41,14 @@ config["queue_len"] = 1
 
 client = MQTTClient(config)
 wdt = None
-frame_log = []
+frame_dict = {}
 
 # HTML template for the webpage
-def webpage(request, *values):
-    global frame_log
-    html = f"""<!DOCTYPE html>
+def webpage(request, writer, *values):
+    global frame_dict
+    # Send the HTTP response
+    writer.write('HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n')
+    writer.write(str(f"""<!DOCTYPE html>
             <html>
                 <head>
                     <title>PicoW BLE -> MQTT</title>
@@ -57,41 +59,38 @@ def webpage(request, *values):
                         <p><a href="/reset">Click to reset the PicoW</a></p>
                     </div>
                     <div>
-                        <h1>Frame log (last 20)</h1>
+                        <h1>List of devices seen by PicoW:</h1>
                         <table>
                             <thead>
                                 <tr>
-                                    <th>timestamp</th>
                                     <th>addr</th>
                                     <th>rssi</th>
                                     <th>raw_data</th>
                                     <th>data</th>
+                                    <th>timestamp</th>
                                 </tr>
                             </thead>
-                            <tbody>"""
-    
-    frame_log_rev = frame_log.copy()
-    frame_log_rev.reverse()
+                            <tbody>"""))
 
-    for curr_frame in frame_log_rev:
-        if 'data' not in curr_frame.keys():
-            curr_frame['data'] = {}
+    for curr_addr, curr_frame in frame_dict.items():
+        curr_data = {}
+        if 'data' in curr_frame.keys():
+            curr_data = curr_frame['data']
 
-        html +=f"""             <tr>
-                                    <td>{curr_frame['timestamp']}</td>
-                                    <td>{curr_frame['addr']}</td>
+        writer.write(str(f"""   <tr>
+                                    <td>{curr_addr}</td>
                                     <td>{curr_frame['rssi']}</td>
                                     <td>{curr_frame['raw_data']}</td>
-                                    <td>{json.dumps(curr_frame['data'])}</td>
-                                <tr>"""
+                                    <td>{json.dumps(curr_data)}</td>
+                                    <td>{curr_frame['timestamp']}</td>
+                                <tr>"""))
 
-    html +=f"""             </tbody>
+    writer.write(str(f"""   </tbody>
                         </table>
                     </div>
                 </body>
-            </html>"""
+            </html>"""))
     
-    return str(html)
 
 # Asynchronous function to handle client's requests
 async def handle_client(reader, writer):
@@ -111,11 +110,9 @@ async def handle_client(reader, writer):
         soft_reset()
 
     # Generate HTML response
-    response = webpage(request)  
+    webpage(request, writer)  
 
-    # Send the HTTP response and close the connection
-    writer.write('HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n')
-    writer.write(response)
+    # Close the connection
     await writer.drain()
     await writer.wait_closed()
     print('Client Disconnected')
@@ -128,32 +125,29 @@ async def up(client):
 
 # Get BLE frames from scanner
 async def get_ble_adv():
-    ble_frame = []
-    async with aioble.scan(1000, interval_us=30000, window_us=30000) as scanner:
-        async for result in scanner:
-            # ['__class__', '__init__', '__module__', '__qualname__', '__str__', '__dict__', 'adv_data', 'connectable', 'name',
-            #  'resp_data', 'rssi', '_decode_field', '_update', 'device', 'manufacturer', 'services']
-            if 'a4:c1:38' not in result.device.addr_hex():
-                continue
-            
-            if result.adv_data:
-                raw_adv = ''.join('%02x' % struct.unpack("B", bytes([x]))[0] for x in result.adv_data)
-                dec_adv = decode_ble(raw_adv)
-                
-                dict_result = {}
-                dict_result['addr'] = result.device.addr_hex()
-                dict_result['rssi'] = result.rssi
-                dict_result['timestamp'] = time.time()
-                
-                if result.name():
-                    dict_result['name'] = result.name()
-                dict_result['raw_data'] = raw_adv
-                if dec_adv:
-                    dict_result['data'] = dec_adv
+    global frame_dict
+    while True:
+        async with aioble.scan(1000, interval_us=30000, window_us=30000) as scanner:
+            async for result in scanner:
+                # ['__class__', '__init__', '__module__', '__qualname__', '__str__', '__dict__', 'adv_data', 'connectable', 'name',
+                #  'resp_data', 'rssi', '_decode_field', '_update', 'device', 'manufacturer', 'services']
+                if result.adv_data:
+                    raw_adv = ''.join('%02x' % struct.unpack("B", bytes([x]))[0] for x in result.adv_data)
+                    dec_adv = decode_ble(raw_adv)
+                    
+                    dict_result = {}
+                    dict_result['to_send'] = True
+                    dict_result['addr'] = result.device.addr_hex()
+                    dict_result['rssi'] = result.rssi
+                    dict_result['timestamp'] = time.time()
+                    
+                    if result.name():
+                        dict_result['name'] = result.name()
+                    dict_result['raw_data'] = raw_adv
+                    if dec_adv:
+                        dict_result['data'] = dec_adv
 
-                ble_frame.append(dict_result)
-
-    return ble_frame
+                    frame_dict[result.device.addr_hex()] = dict_result
 
 # Network starting and OTA update
 async def init(client):
@@ -171,11 +165,12 @@ async def init(client):
 
 # MQTT client and local Webserver
 async def main(client):
-    global frame_log
+    global frame_dict
     print ("Connecting to MQTT")
     await client.connect()
     print ("Connected")
     asyncio.create_task(up(client))
+    asyncio.create_task(get_ble_adv())
 
     # Watchdog timer
     global wdt
@@ -186,22 +181,22 @@ async def main(client):
     server = asyncio.start_server(handle_client, "0.0.0.0", 80)
     asyncio.create_task(server)
 
+    print('All up and running!')
     while True:
-        result_frame = await get_ble_adv()
-        if result_frame:
-            for result in result_frame:
-                
+        for curr_addr, curr_result in frame_dict.items():
+            if curr_result['to_send']:
                 # Send to MQTT Broker
-                await client.publish(f'ble_{result["addr"]}/', json.dumps(result), qos = 1)
-                
-                # Save to local history (20 last)
-                #if len(frame_log) == 20:
-                #    frame_log.pop(0)
-                #frame_log.append(result)
+                curr_result.pop('to_send')
+                await client.publish(f'ble_{curr_addr}/', json.dumps(curr_result), qos = 1)
                 
                 # Print to console
-                #print(json.dumps(result))
+                #print(json.dumps(curr_result))
+
+                # Set device flag to Flase
+                frame_dict[curr_addr]['to_send'] = False
+        
         wdt.feed()
+        await asyncio.sleep(0.5)
 
 # MAIN #
 if __name__ == "__main__":
