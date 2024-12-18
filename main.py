@@ -57,7 +57,7 @@ def webpage(request, *values):
                         <p><a href="/reset">Click to reset the PicoW</a></p>
                     </div>
                     <div>
-                        <h1>Frame log (last 25)</h1>
+                        <h1>Frame log (last 20)</h1>
                         <table>
                             <thead>
                                 <tr>
@@ -72,7 +72,7 @@ def webpage(request, *values):
     
     frame_log_rev = frame_log.copy()
     frame_log_rev.reverse()
-    
+
     for curr_frame in frame_log_rev:
         if 'data' not in curr_frame.keys():
             curr_frame['data'] = ''
