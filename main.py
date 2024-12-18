@@ -188,13 +188,13 @@ async def main(client):
         if result_frame:
             for result in result_frame:
                 
-                # Send to MQTT Broker                
+                # Send to MQTT Broker
                 await client.publish(f'ble_{result["addr"]}/', json.dumps(result), qos = 1)
                 
                 # Save to local history (20 last)
-                if len(frame_log) == 20:
-                    frame_log.pop(0)
-                frame_log.append(result)
+                #if len(frame_log) == 20:
+                #    frame_log.pop(0)
+                #frame_log.append(result)
                 
                 # Print to console
                 #print(json.dumps(result))
