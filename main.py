@@ -133,6 +133,9 @@ async def get_ble_adv():
         async for result in scanner:
             # ['__class__', '__init__', '__module__', '__qualname__', '__str__', '__dict__', 'adv_data', 'connectable', 'name',
             #  'resp_data', 'rssi', '_decode_field', '_update', 'device', 'manufacturer', 'services']
+            if 'a4:c1:38' not in result.device.addr_hex():
+                continue
+            
             if result.adv_data:
                 raw_adv = ''.join('%02x' % struct.unpack("B", bytes([x]))[0] for x in result.adv_data)
                 dec_adv = decode_ble(raw_adv)
