@@ -72,20 +72,17 @@ def webpage(request, *values):
     
     frame_log_rev = frame_log.copy()
     frame_log_rev.reverse()
-
+    
     for curr_frame in frame_log_rev:
-        curr_frame_data = curr_frame.copy()
-        curr_frame_data.pop('timestamp')
-        curr_frame_data.pop('addr')
-        curr_frame_data.pop('rssi')
-        curr_frame_data.pop('raw_data')
+        if 'data' not in curr_frame.keys():
+            curr_frame['data'] = ''
 
         html +=f"""             <tr>
                                     <td>{curr_frame['timestamp']}</td>
                                     <td>{curr_frame['addr']}</td>
                                     <td>{curr_frame['rssi']}</td>
                                     <td>{curr_frame['raw_data']}</td>
-                                    <td>{json.dumps(curr_frame_data)}</td>
+                                    <td>{curr_frame['data']}</td>
                                 <tr>"""
 
     html +=f"""             </tbody>
@@ -149,8 +146,7 @@ async def get_ble_adv():
                     dict_result['name'] = result.name()
                 dict_result['raw_data'] = raw_adv
                 if dec_adv:
-                    for data_key, data_value in dec_adv.items():
-                        dict_result[data_key] = data_value
+                    dict_result['data'] = json.dumps(dec_adv)
 
                 ble_frame.append(dict_result)
 
@@ -200,13 +196,13 @@ async def main(client):
                             data_value = str(data_value).encode()
                         await client.publish(f'ble_{curr_addr}/{data_key}', data_value, qos = 1)
                 
-                # Save to local history (25 last)
-                if len(frame_log) == 25:
+                # Save to local history (20 last)
+                if len(frame_log) == 20:
                     frame_log.pop(0)
                 frame_log.append(result)
                 
                 # Print to console
-                print(json.dumps(result))
+                #print(json.dumps(result))
         wdt.feed()
 
 # MAIN #
