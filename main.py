@@ -59,7 +59,7 @@ def webpage(request, writer, *values):
                         <p><a href="/reset">Click to reset the PicoW</a></p>
                     </div>
                     <div>
-                        <h1>List of devices seen by PicoW:</h1>
+                        <h1>List of devices seen by PicoW ({len(list(frame_dict.keys()))}):</h1>
                         <table>
                             <thead>
                                 <tr>
@@ -68,6 +68,7 @@ def webpage(request, writer, *values):
                                     <th>raw_data</th>
                                     <th>data</th>
                                     <th>timestamp</th>
+                                    <th>to_send</th>
                                 </tr>
                             </thead>
                             <tbody>"""))
@@ -77,12 +78,17 @@ def webpage(request, writer, *values):
         if 'data' in curr_frame.keys():
             curr_data = curr_frame['data']
 
+        curr_to_send = 'N'
+        if curr_frame['to_send']:
+            curr_to_send = 'Y'
+
         writer.write(str(f"""   <tr>
                                     <td>{curr_addr}</td>
                                     <td>{curr_frame['rssi']}</td>
                                     <td>{curr_frame['raw_data']}</td>
                                     <td>{json.dumps(curr_data)}</td>
                                     <td>{curr_frame['timestamp']}</td>
+                                    <td>{curr_to_send}</td>
                                 <tr>"""))
 
     writer.write(str(f"""   </tbody>
